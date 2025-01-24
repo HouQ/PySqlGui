@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据库操作</title>
+  <link href="/static/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+  <div id="app" class="h-screen flex">
+    <!-- 左侧栏 -->
+    <div class="w-4/10 flex flex-col border-r">
+      <!-- 顶部导航 -->
+      <nav class="bg-white shadow p-4">
+        <div class="flex justify-between items-center">
+          <h1 class="text-xl font-bold">数据库操作</h1>
+          <button @click="disconnect" 
+            class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+            断开连接
+          </button>
+        </div>
+      </nav>
+      
+      <!-- 数据库树形结构 -->
+      <div class="flex-1 bg-white p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+        <div v-for="db in databases" :key="db.name" class="mb-4">
+          <div @click="toggleDatabase(db)" 
+            class="flex items-center cursor-pointer hover:bg-gray-100 p-1 rounded">
+            <span class="flex-1">{{ db.name }}</span>
+            <svg class="w-4 h-4 transform transition-transform" 
+              :class="{ 'rotate-90': db.expanded }" 
+              viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" 
+                d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" 
+                clip-rule="evenodd"/>
+            </svg>
+          </div>
+          
+          <div v-if="db.expanded" class="pl-4 mt-1">
+            <div v-for="table in db.tables" :key="table" 
+              class="py-1 hover:bg-gray-100 cursor-pointer"
+              @click="selectTable(db.name, table)">
+              {{ table }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧栏 -->
+    <div class="w-7/10 flex flex-col flex-1">
+      <!-- 输入模块 -->
+      <div class="h-4/10 p-4 flex gap-4 border-b w-full">
+        <!-- 自然语言输入 -->
+        <div class="w-1/2 flex flex-col gap-2">
+            <textarea v-model="prompt"
+              class="flex-1 p-2 border rounded-md resize-none h-32"
+              placeholder="输入自然语言描述..."></textarea>
+            <button @click="generateSql"
+              class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+              生成SQL
+            </button>
+          </div>
+          
+          <!-- SQL编辑 -->
+          <div class="w-1/2 flex flex-col gap-2">
+            <textarea v-model="sql"
+              class="flex-1 p-2 border rounded-md resize-none h-32"
+              placeholder="输入SQL语句..."></textarea>
+            <button @click="executeSql"
+              class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+              执行
+            </button>
+          </div>
+        </div>
+
+      <!-- 展示模块 -->
+      <div class="h-6/10 p-4 overflow-auto w-full scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+        <div class="w-full overflow-x-auto">
+          <table v-if="results.length > 0" class="min-w-full">
+            <thead>
+              <tr>
+                <th v-for="col in columns" :key="col" 
+                  class="px-4 py-2 bg-gray-100 border">
+                  {{ col }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, i) in results" :key="i">
+                <td v-for="col in columns" :key="col" 
+                  class="px-4 py-2 border">
+                  {{ row[col] }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="text-gray-500">
+            暂无数据
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vue.global.js"></script>
+  <script>
+    const { createApp, ref } = Vue
+    
+    createApp({
+      setup() {
+        const baseUrl = ref('/api/db')
+        const databases = ref([])
+        const sql = ref('')
+        const prompt = ref('描述数据库')
+        const results = ref([])
+        const columns = ref([])
+        const currentDatabase = ref('')
+
+        // 生成SQL
+        const generateSql = () => {
+          console.log('Generating SQL...')
+          sql.value = '' // 清空之前的SQL
+          
+          fetch(`${baseUrl.value}/generate-sql`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              prompt: prompt.value,
+              database: currentDatabase.value
+            })
+          }).then(async (response) => {
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              
+              const chunk = decoder.decode(value)
+              const lines = chunk.split('\n')
+              
+              lines.forEach(line => {
+                if (line.startsWith('data:')) {
+                  try {
+                    const data = JSON.parse(line.slice(5))
+                    if (data.sql) {
+                      sql.value += data.sql
+                    }
+                  } catch (error) {
+                    console.error('解析SSE数据失败:', error)
+                  }
+                }
+              })
+            }
+          }).catch(error => {
+            console.error('SSE连接错误:', error)
+          })
+        }
+
+        // 获取数据库列表
+        const fetchDatabases = async () => {
+          try {
+            const response = await fetch(`${baseUrl.value}/databases`)
+            if (response.ok) {
+              databases.value = await response.json()
+            }
+          } catch (error) {
+            console.error('获取数据库列表失败:', error)
+          }
+        }
+
+        // 切换数据库展开状态
+        const toggleDatabase = (db) => {
+          db.expanded = !db.expanded
+          if (db.expanded && db.tables.length === 0) {
+            fetchTables(db)
+          }
+          currentDatabase.value = db.name
+        }
+
+        // 选择表
+        const selectTable = (dbName, tableName) => {
+          sql.value = `SELECT * FROM ${dbName}.${tableName} LIMIT 100`
+          executeSql()
+        }
+
+        // 获取表列表
+        const fetchTables = async (db) => {
+          try {
+            const response = await fetch(`${baseUrl.value}/tables?db=${db.name}`)
+            if (response.ok) {
+              db.tables = await response.json()
+            }
+          } catch (error) {
+            console.error('获取表列表失败:', error)
+          }
+        }
+
+        // 执行SQL
+        const executeSql = async () => {
+          try {
+            const response = await fetch(`${baseUrl.value}/execute`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                sql: sql.value
+              })
+            })
+            
+            if (response.ok) {
+              const data = await response.json()
+              console.log('API Response:', data)
+              if(data && data.results && data.columns) {
+                results.value = data.results
+                columns.value = data.columns
+                console.log('Results:', results.value)
+                console.log('Columns:', columns.value)
+              } else {
+                alert('执行成功, 受影响行数: ' + (data.rowsAffected || 0))
+              }
+            } else {
+              console.error('API Error:', await response.text())
+            }
+          } catch (error) {
+            console.error('执行SQL失败:', error)
+          }
+        }
+
+        // 断开连接
+        const disconnect = async () => {
+          try {
+            await fetch(`${baseUrl.value}/disconnect`)
+            window.location.href = `${baseUrl.value}/dbConnectHtml`
+          } catch (error) {
+            console.error('断开连接失败:', error)
+          }
+        }
+
+        // 初始化
+        fetchDatabases()
+
+        return {
+          baseUrl,
+          databases,
+          prompt,
+          sql,
+          results,
+          columns,
+          currentDatabase,
+          selectTable,
+          toggleDatabase,
+          generateSql,
+          executeSql,
+          disconnect
+        }
+      }
+    }).mount('#app')
+  </script>
+</body>
+</html>

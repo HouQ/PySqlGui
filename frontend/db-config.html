@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据库配置</title>
+<!--  <link href="/tailwind.min.css" rel="stylesheet">-->
+  <link href="/static/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+  <div id="app" class="max-w-2xl mx-auto mt-10 p-6 bg-white rounded-lg shadow">
+    <h1 class="text-2xl font-bold mb-6">数据库连接配置</h1>
+    <form @submit.prevent="connect" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700">主机地址</label>
+        <input v-model="host" type="text" required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700">端口</label>
+        <input v-model="port" type="number" required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700">用户名</label>
+        <input v-model="username" type="text" required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700">密码</label>
+        <input v-model="password" type="password" required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700">数据库名</label>
+        <input v-model="database" type="text" required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+      </div>
+      <button type="submit" 
+        class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600">
+        连接
+      </button>
+    </form>
+  </div>
+
+<!--  <script src="/vue.global.js"></script>-->
+  <script src="/static/vue.global.js"></script>
+  <script>
+    const { createApp, ref } = Vue
+    
+    createApp({
+      setup() {
+        // const baseUrl = ref('/api/db') // 基础URL变量
+        const baseUrl = ref('/api/db') // 基础URL变量
+        const host = ref('192.168.1.xx')
+        const port = ref(3306)
+        const username = ref('xxx')
+        const password = ref('xxxx')
+        const database = ref('xxxx')
+
+
+        const connect = async () => {
+          try {
+            const response = await fetch(`${baseUrl.value}/connect`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                host: host.value,
+                port: port.value,
+                username: username.value,
+                password: password.value,
+                database: database.value
+              })
+            })
+            
+            if (response.ok) {
+              window.location.href = `${baseUrl.value}/dbOperateHtml`
+            } else {
+              alert('连接失败，请检查配置')
+            }
+          } catch (error) {
+            console.error('连接错误:', error)
+            alert('连接出错')
+          }
+        }
+
+        return {
+          baseUrl,
+          host,
+          port,
+          username,
+          password,
+          database,
+          connect
+        }
+      }
+    }).mount('#app')
+  </script>
+</body>
+</html>
